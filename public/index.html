@@ -195,36 +195,21 @@ function connectSocket() {
         const data = JSON.parse(event.data);
 
         if (data.type === "chat") {
-
             addMessage(data.message);
-
         }
 
         if (data.type === "system") {
-
-            addMessage(
-                "SYSTEM: " + data.message
-            );
-
+            addMessage("SYSTEM: " + data.message);
         }
 
         if (data.type === "signal") {
-
-            await handleSignal(
-                data.signal
-            );
-
+            await handleSignal(data.signal);
         }
 
     };
 
     socket.onerror = function(error) {
-
-        console.error(
-            "WebSocket error:",
-            error
-        );
-
+        console.error("WebSocket error:", error);
     };
 
 }
@@ -301,27 +286,20 @@ async function startScreenShare() {
         const offer =
             await peer.createOffer();
 
-        await peer.setLocalDescription(
-            offer
-        );
+        await peer.setLocalDescription(offer);
 
         socket.send(JSON.stringify({
-
             type: "signal",
-
             signal: {
                 offer: offer
             }
-
         }));
 
     } catch (error) {
 
         console.error(error);
 
-        alert(
-            "Screen sharing was cancelled."
-        );
+        alert("Screen sharing was cancelled.");
 
     }
 
@@ -330,12 +308,11 @@ async function startScreenShare() {
 async function createPeerConnection() {
 
     const peer =
-        new RTCPeerConnection(
-            rtcConfig
-        );
+        new RTCPeerConnection(rtcConfig);
 
-    peerConnections.remote =
-        peer;
+    peerConnections.remote = peer;
+
+    peer.pendingCandidates = [];
 
     if (localStream) {
 
@@ -356,30 +333,24 @@ async function createPeerConnection() {
 
         document
             .getElementById("screen")
-            .srcObject =
-                event.streams[0];
+            .srcObject = event.streams[0];
 
     };
 
-    peer.onicecandidate =
-        function(event) {
+    peer.onicecandidate = function(event) {
 
-            if (event.candidate) {
+        if (event.candidate) {
 
-                socket.send(JSON.stringify({
+            socket.send(JSON.stringify({
+                type: "signal",
+                signal: {
+                    candidate: event.candidate
+                }
+            }));
 
-                    type: "signal",
+        }
 
-                    signal: {
-                        candidate:
-                            event.candidate
-                    }
-
-                }));
-
-            }
-
-        };
+    };
 
     return peer;
 
@@ -387,39 +358,55 @@ async function createPeerConnection() {
 
 async function handleSignal(signal) {
 
-    let peer =
-        peerConnections.remote;
+    let peer = peerConnections.remote;
 
     if (!peer) {
 
-        peer =
-            await createPeerConnection();
+        peer = await createPeerConnection();
+
+    }
+
+    if (!peer.pendingCandidates) {
+
+        peer.pendingCandidates = [];
 
     }
 
     if (signal.offer) {
 
         await peer.setRemoteDescription(
-            new RTCSessionDescription(
-                signal.offer
-            )
+            new RTCSessionDescription(signal.offer)
         );
+
+        for (const candidate of peer.pendingCandidates) {
+
+            try {
+
+                await peer.addIceCandidate(candidate);
+
+            } catch (error) {
+
+                console.error(
+                    "ICE candidate error:",
+                    error
+                );
+
+            }
+
+        }
+
+        peer.pendingCandidates = [];
 
         const answer =
             await peer.createAnswer();
 
-        await peer.setLocalDescription(
-            answer
-        );
+        await peer.setLocalDescription(answer);
 
         socket.send(JSON.stringify({
-
             type: "signal",
-
             signal: {
                 answer: answer
             }
-
         }));
 
     }
@@ -427,29 +414,53 @@ async function handleSignal(signal) {
     if (signal.answer) {
 
         await peer.setRemoteDescription(
-            new RTCSessionDescription(
-                signal.answer
-            )
+            new RTCSessionDescription(signal.answer)
         );
+
+        for (const candidate of peer.pendingCandidates) {
+
+            try {
+
+                await peer.addIceCandidate(candidate);
+
+            } catch (error) {
+
+                console.error(
+                    "ICE candidate error:",
+                    error
+                );
+
+            }
+
+        }
+
+        peer.pendingCandidates = [];
 
     }
 
     if (signal.candidate) {
 
-        try {
+        const candidate =
+            new RTCIceCandidate(signal.candidate);
 
-            await peer.addIceCandidate(
-                new RTCIceCandidate(
-                    signal.candidate
-                )
-            );
+        if (peer.remoteDescription) {
 
-        } catch (error) {
+            try {
 
-            console.error(
-                "ICE candidate error:",
-                error
-            );
+                await peer.addIceCandidate(candidate);
+
+            } catch (error) {
+
+                console.error(
+                    "ICE candidate error:",
+                    error
+                );
+
+            }
+
+        } else {
+
+            peer.pendingCandidates.push(candidate);
 
         }
 
@@ -468,16 +479,11 @@ function sendMessage() {
     if (!message) return;
 
     socket.send(JSON.stringify({
-
         type: "chat",
-
         message: message
-
     }));
 
-    addMessage(
-        "You: " + message
-    );
+    addMessage("You: " + message);
 
     input.value = "";
 

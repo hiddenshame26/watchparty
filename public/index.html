@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watch Party</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #111;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 900px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 40px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #aaa;
+        }
+
+        input {
+            padding: 12px;
+            width: 250px;
+            border-radius: 6px;
+            border: none;
+            margin: 5px;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            background: #5865f2;
+            color: white;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 15px;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        #party {
+            display: none;
+            margin-top: 30px;
+        }
+
+        video {
+            width: 100%;
+            max-height: 500px;
+            background: black;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        #chat {
+            margin-top: 20px;
+            background: #1c1c1c;
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        #messages {
+            height: 150px;
+            overflow-y: auto;
+            text-align: left;
+            margin-bottom: 10px;
+        }
+
+        .message {
+            padding: 5px;
+            border-bottom: 1px solid #333;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>🎬 Watch Party</h1>
+    <p>Create or join a party with your friends.</p>
+
+    <div id="lobby">
+        <input id="partyCode" placeholder="Enter party code">
+        <br>
+
+        <button onclick="createParty()">
+            Create Party
+        </button>
+
+        <button onclick="joinParty()">
+            Join Party
+        </button>
+    </div>
+
+    <div id="party">
+
+        <h2>Party: <span id="currentCode"></span></h2>
+
+        <button onclick="startScreenShare()">
+            🖥️ Share My Screen
+        </button>
+
+        <video id="screen" autoplay playsinline></video>
+
+        <div id="chat">
+
+            <h3>Chat</h3>
+
+            <div id="messages"></div>
+
+            <input id="chatInput" placeholder="Type a message...">
+
+            <button onclick="sendMessage()">
+                Send
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+let socket;
+let currentParty;
+
+function connectSocket() {
+
+    socket = new WebSocket(
+        "ws://" + window.location.host
+    );
+
+    socket.onmessage = function(event) {
+
+        const data = JSON.parse(event.data);
+
+        if (data.type === "chat") {
+            addMessage(data.message);
+        }
+
+        if (data.type === "system") {
+            addMessage("SYSTEM: " + data.message);
+        }
+
+    };
+
+}
+
+function createParty() {
+
+    const code = Math.random()
+        .toString(36)
+        .substring(2, 8)
+        .toUpperCase();
+
+    join(code);
+
+}
+
+function joinParty() {
+
+    const code =
+        document.getElementById("partyCode").value
+        .trim()
+        .toUpperCase();
+
+    if (!code) {
+        alert("Enter a party code.");
+        return;
+    }
+
+    join(code);
+
+}
+
+function join(code) {
+
+    currentParty = code;
+
+    document.getElementById("currentCode").textContent =
+        code;
+
+    document.getElementById("lobby").style.display =
+        "none";
+
+    document.getElementById("party").style.display =
+        "block";
+
+    connectSocket();
+
+    setTimeout(() => {
+
+        socket.send(JSON.stringify({
+            type: "join",
+            code: currentParty
+        }));
+
+    }, 500);
+
+}
+
+async function startScreenShare() {
+
+    try {
+
+        const stream =
+            await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: true
+            });
+
+        document.getElementById("screen").srcObject =
+            stream;
+
+    } catch (error) {
+
+        console.error(error);
+
+        alert("Screen sharing was cancelled.");
+
+    }
+
+}
+
+function sendMessage() {
+
+    const input =
+        document.getElementById("chatInput");
+
+    const message =
+        input.value.trim();
+
+    if (!message) return;
+
+    socket.send(JSON.stringify({
+        type: "chat",
+        message: message
+    }));
+
+    addMessage("You: " + message);
+
+    input.value = "";
+
+}
+
+function addMessage(message) {
+
+    const messages =
+        document.getElementById("messages");
+
+    const div =
+        document.createElement("div");
+
+    div.className = "message";
+
+    div.textContent = message;
+
+    messages.appendChild(div);
+
+    messages.scrollTop =
+        messages.scrollHeight;
+
+}
+
+</script>
+
+</body>
+</html>

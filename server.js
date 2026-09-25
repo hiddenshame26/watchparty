@@ -36,7 +36,7 @@ wss.on("connection", (ws) => {
             broadcast(partyCode, {
                 type: "system",
                 message: "Someone joined the party."
-            });
+            }, ws);
         }
 
         if (data.type === "chat") {
@@ -50,6 +50,12 @@ wss.on("connection", (ws) => {
             broadcast(partyCode, {
                 type: "signal",
                 signal: data.signal
+            }, ws);
+        }
+
+        if (data.type === "screen-share-started") {
+            broadcast(partyCode, {
+                type: "screen-share-started"
             }, ws);
         }
     });
@@ -71,7 +77,10 @@ function broadcast(code, message, exclude = null) {
     if (!party) return;
 
     for (const client of party) {
-        if (client !== exclude && client.readyState === WebSocket.OPEN) {
+        if (
+            client !== exclude &&
+            client.readyState === WebSocket.OPEN
+        ) {
             client.send(JSON.stringify(message));
         }
     }
@@ -79,6 +88,6 @@ function broadcast(code, message, exclude = null) {
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
     console.log(`Watch Party running on port ${PORT}`);
 });

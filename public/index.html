@@ -94,10 +94,16 @@
 <div class="container">
 
     <h1>🎬 Watch Party</h1>
+
     <p>Create or join a party with your friends.</p>
 
     <div id="lobby">
-        <input id="partyCode" placeholder="Enter party code">
+
+        <input
+            id="partyCode"
+            placeholder="Enter party code"
+        >
+
         <br>
 
         <button onclick="createParty()">
@@ -107,17 +113,26 @@
         <button onclick="joinParty()">
             Join Party
         </button>
+
     </div>
 
     <div id="party">
 
-        <h2>Party: <span id="currentCode"></span></h2>
+        <h2>
+            Party:
+            <span id="currentCode"></span>
+        </h2>
 
         <button onclick="startScreenShare()">
             🖥️ Share My Screen
         </button>
 
-        <video id="screen" autoplay playsinline></video>
+        <video
+            id="screen"
+            autoplay
+            playsinline
+            controls
+        ></video>
 
         <div id="chat">
 
@@ -125,7 +140,10 @@
 
             <div id="messages"></div>
 
-            <input id="chatInput" placeholder="Type a message...">
+            <input
+                id="chatInput"
+                placeholder="Type a message..."
+            >
 
             <button onclick="sendMessage()">
                 Send
@@ -141,24 +159,71 @@
 
 let socket;
 let currentParty;
+let peerConnections = {};
+let localStream = null;
+
+const rtcConfig = {
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        }
+    ]
+};
 
 function connectSocket() {
 
+    const protocol =
+        window.location.protocol === "https:"
+            ? "wss://"
+            : "ws://";
+
     socket = new WebSocket(
-        "ws://" + window.location.host
+        protocol + window.location.host
     );
 
-    socket.onmessage = function(event) {
+    socket.onopen = function() {
+
+        socket.send(JSON.stringify({
+            type: "join",
+            code: currentParty
+        }));
+
+    };
+
+    socket.onmessage = async function(event) {
 
         const data = JSON.parse(event.data);
 
         if (data.type === "chat") {
+
             addMessage(data.message);
+
         }
 
         if (data.type === "system") {
-            addMessage("SYSTEM: " + data.message);
+
+            addMessage(
+                "SYSTEM: " + data.message
+            );
+
         }
+
+        if (data.type === "signal") {
+
+            await handleSignal(
+                data.signal
+            );
+
+        }
+
+    };
+
+    socket.onerror = function(error) {
+
+        console.error(
+            "WebSocket error:",
+            error
+        );
 
     };
 
@@ -178,13 +243,18 @@ function createParty() {
 function joinParty() {
 
     const code =
-        document.getElementById("partyCode").value
-        .trim()
-        .toUpperCase();
+        document
+            .getElementById("partyCode")
+            .value
+            .trim()
+            .toUpperCase();
 
     if (!code) {
+
         alert("Enter a party code.");
+
         return;
+
     }
 
     join(code);
@@ -195,25 +265,19 @@ function join(code) {
 
     currentParty = code;
 
-    document.getElementById("currentCode").textContent =
-        code;
+    document
+        .getElementById("currentCode")
+        .textContent = code;
 
-    document.getElementById("lobby").style.display =
-        "none";
+    document
+        .getElementById("lobby")
+        .style.display = "none";
 
-    document.getElementById("party").style.display =
-        "block";
+    document
+        .getElementById("party")
+        .style.display = "block";
 
     connectSocket();
-
-    setTimeout(() => {
-
-        socket.send(JSON.stringify({
-            type: "join",
-            code: currentParty
-        }));
-
-    }, 500);
 
 }
 
@@ -221,20 +285,173 @@ async function startScreenShare() {
 
     try {
 
-        const stream =
+        localStream =
             await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: true
             });
 
-        document.getElementById("screen").srcObject =
-            stream;
+        document
+            .getElementById("screen")
+            .srcObject = localStream;
+
+        const peer =
+            await createPeerConnection();
+
+        const offer =
+            await peer.createOffer();
+
+        await peer.setLocalDescription(
+            offer
+        );
+
+        socket.send(JSON.stringify({
+
+            type: "signal",
+
+            signal: {
+                offer: offer
+            }
+
+        }));
 
     } catch (error) {
 
         console.error(error);
 
-        alert("Screen sharing was cancelled.");
+        alert(
+            "Screen sharing was cancelled."
+        );
+
+    }
+
+}
+
+async function createPeerConnection() {
+
+    const peer =
+        new RTCPeerConnection(
+            rtcConfig
+        );
+
+    peerConnections.remote =
+        peer;
+
+    if (localStream) {
+
+        localStream
+            .getTracks()
+            .forEach(track => {
+
+                peer.addTrack(
+                    track,
+                    localStream
+                );
+
+            });
+
+    }
+
+    peer.ontrack = function(event) {
+
+        document
+            .getElementById("screen")
+            .srcObject =
+                event.streams[0];
+
+    };
+
+    peer.onicecandidate =
+        function(event) {
+
+            if (event.candidate) {
+
+                socket.send(JSON.stringify({
+
+                    type: "signal",
+
+                    signal: {
+                        candidate:
+                            event.candidate
+                    }
+
+                }));
+
+            }
+
+        };
+
+    return peer;
+
+}
+
+async function handleSignal(signal) {
+
+    let peer =
+        peerConnections.remote;
+
+    if (!peer) {
+
+        peer =
+            await createPeerConnection();
+
+    }
+
+    if (signal.offer) {
+
+        await peer.setRemoteDescription(
+            new RTCSessionDescription(
+                signal.offer
+            )
+        );
+
+        const answer =
+            await peer.createAnswer();
+
+        await peer.setLocalDescription(
+            answer
+        );
+
+        socket.send(JSON.stringify({
+
+            type: "signal",
+
+            signal: {
+                answer: answer
+            }
+
+        }));
+
+    }
+
+    if (signal.answer) {
+
+        await peer.setRemoteDescription(
+            new RTCSessionDescription(
+                signal.answer
+            )
+        );
+
+    }
+
+    if (signal.candidate) {
+
+        try {
+
+            await peer.addIceCandidate(
+                new RTCIceCandidate(
+                    signal.candidate
+                )
+            );
+
+        } catch (error) {
+
+            console.error(
+                "ICE candidate error:",
+                error
+            );
+
+        }
 
     }
 
@@ -251,11 +468,16 @@ function sendMessage() {
     if (!message) return;
 
     socket.send(JSON.stringify({
+
         type: "chat",
+
         message: message
+
     }));
 
-    addMessage("You: " + message);
+    addMessage(
+        "You: " + message
+    );
 
     input.value = "";
 
